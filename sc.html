@@ -1,0 +1,381 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SC 호기별 날짜별 작동유 보충량 추이</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;700&family=Space+Mono:wght@400;700&display=swap');
+  :root {
+    --bg:#0a0e1a; --panel:#111827; --panel2:#1a2235; --border:#1e2d45;
+    --accent:#00c9ff; --accent2:#ff6b35; --text:#e2e8f0; --muted:#64748b;
+    --red:#ef4444; --orange:#f97316; --yellow:#ffd700; --green:#4ade80;
+  }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { font-family:'Noto Sans KR',sans-serif; background:var(--bg); color:var(--text); padding:24px; }
+
+  .header { text-align:center; margin-bottom:28px; }
+  .header h1 { font-family:'Space Mono',monospace; font-size:1.4rem; color:var(--accent); letter-spacing:0.04em; }
+  .header p { font-size:0.8rem; color:var(--muted); margin-top:6px; font-family:'Space Mono',monospace; }
+
+  .filter-bar {
+    display:flex; align-items:center; gap:12px; margin-bottom:20px;
+    background:var(--panel); border:1px solid var(--border); border-radius:8px; padding:14px 18px;
+    flex-wrap:wrap;
+  }
+  .filter-bar label { font-size:0.78rem; color:var(--muted); font-family:'Space Mono',monospace; white-space:nowrap; }
+  .filter-bar select, .filter-bar input[type=text] {
+    background:var(--panel2); border:1px solid var(--border); color:var(--text);
+    padding:6px 12px; border-radius:6px; font-size:0.8rem; font-family:'Space Mono',monospace;
+    outline:none; cursor:pointer;
+  }
+  .filter-bar select:focus, .filter-bar input[type=text]:focus { border-color:var(--accent); }
+  .btn {
+    padding:6px 16px; border-radius:6px; border:1px solid var(--accent); background:transparent;
+    color:var(--accent); font-size:0.78rem; font-family:'Space Mono',monospace; cursor:pointer;
+    transition:all 0.2s;
+  }
+  .btn:hover { background:var(--accent); color:#000; }
+  .btn.active { background:var(--accent); color:#000; }
+
+  /* 개별 SC 카드들 */
+  .grid {
+    display:grid;
+    grid-template-columns: repeat(auto-fill, minmax(380px, 1fr));
+    gap:16px;
+  }
+
+  .sc-card {
+    background:var(--panel); border:1px solid var(--border); border-radius:8px;
+    padding:18px; position:relative; overflow:hidden;
+  }
+  .sc-card::before {
+    content:''; position:absolute; top:0; left:0; right:0; height:3px;
+    background:var(--accent);
+  }
+  .sc-card.high::before { background:var(--red); }
+  .sc-card.medium::before { background:var(--orange); }
+  .sc-card.low::before { background:var(--green); }
+
+  .sc-header {
+    display:flex; justify-content:space-between; align-items:center; margin-bottom:14px;
+  }
+  .sc-name {
+    font-family:'Space Mono',monospace; font-size:1rem; font-weight:700;
+  }
+  .sc-card.high .sc-name { color:var(--red); }
+  .sc-card.medium .sc-name { color:var(--orange); }
+  .sc-card.low .sc-name { color:var(--accent); }
+
+  .sc-meta { display:flex; gap:12px; }
+  .sc-meta span {
+    font-size:0.7rem; color:var(--muted); font-family:'Space Mono',monospace;
+    background:var(--panel2); padding:2px 8px; border-radius:10px;
+  }
+  .sc-meta .total-val { color:var(--text); }
+
+  canvas { width:100% !important; }
+
+  /* 종합 추이 */
+  .overview-card {
+    background:var(--panel); border:1px solid var(--border); border-radius:8px;
+    padding:20px; margin-bottom:20px;
+  }
+  .card-title {
+    font-family:'Space Mono',monospace; font-size:0.75rem; color:var(--muted);
+    letter-spacing:0.1em; text-transform:uppercase; margin-bottom:16px;
+    display:flex; align-items:center; gap:8px;
+  }
+  .card-title::before {
+    content:''; width:8px; height:8px; border-radius:50%; background:var(--accent); display:inline-block;
+  }
+
+  .no-data {
+    text-align:center; color:var(--muted); font-size:0.78rem;
+    font-family:'Space Mono',monospace; padding:30px 0;
+  }
+
+  .legend-note {
+    font-size:0.7rem; color:var(--muted); margin-top:8px; text-align:right;
+    font-family:'Space Mono',monospace;
+  }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>SC HYDRAULIC OIL — DAILY TREND BY UNIT</h1>
+  <p>BNCT 호기별 날짜별 작동유 보충량 추이 · 2026.01.24 ~ 02.24</p>
+</div>
+
+<!-- 필터 바 -->
+<div class="filter-bar">
+  <label>정렬:</label>
+  <select id="sortSelect" onchange="render()">
+    <option value="total_desc">보충량 많은 순</option>
+    <option value="total_asc">보충량 적은 순</option>
+    <option value="count_desc">횟수 많은 순</option>
+    <option value="sc_asc">호기번호 순</option>
+  </select>
+  <label style="margin-left:8px;">표시:</label>
+  <button class="btn active" id="btnAll" onclick="setFilter('all')">전체</button>
+  <button class="btn" id="btnHigh" onclick="setFilter('high')">위험 (≥100L)</button>
+  <button class="btn" id="btnMed" onclick="setFilter('medium')">주의 (30~99L)</button>
+  <button class="btn" id="btnLow" onclick="setFilter('low')">양호 (&lt;30L)</button>
+  <label style="margin-left:8px;">호기 검색:</label>
+  <input type="text" id="searchInput" placeholder="예: 313" style="width:80px;" oninput="render()">
+</div>
+
+<!-- 종합 추이 (상위 10개) -->
+<div class="overview-card">
+  <div class="card-title">상위 10개 호기 날짜별 누적 추이</div>
+  <canvas id="overviewChart" height="80"></canvas>
+</div>
+
+<!-- 호기별 그리드 -->
+<div class="grid" id="scGrid"></div>
+
+<script>
+// ===================== 원본 데이터 =====================
+// 형식: [날짜(MM-DD), SC번호, 보충량L, 비고]
+const raw = [
+  ["01-24","321",25,"폴트914"],
+  ["01-25","339",8,"폴트3050"],
+  ["01-26","319",15,"폴트914"],["01-26","318",20,"폴트10"],["01-26","329",10,"PMS"],["01-26","315",150,"엔진장착"],["01-26","314",35,"오일누유"],
+  ["01-27","311",40,"폴트914"],
+  ["01-28","335",12,"스프레더누유"],["01-28","311",10,"PMS"],
+  ["01-29","309",35,"폴트914"],["01-29","306",25,"폴트914"],["01-29","313",25,"폴트914"],
+  ["01-30","321",25,"오일보충"],
+  ["01-31","324",5,"폴트100"],["01-31","326",22,"폴트914"],["01-31","318",10,"냉각수누수"],["01-31","341",13,"작동유부족"],
+  ["02-01","320",12,"오일누유"],
+  ["02-02","317",25,"폴트914"],["02-02","309",15,"PMS"],
+  ["02-03","311",40,"폴트914"],["02-03","313",45,"폴트914"],["02-03","312",37,"폴트914"],["02-03","345",10,"폴트3050"],["02-03","313",25,"작동유보충"],
+  ["02-04","313",30,"폴트914"],["02-04","306",20,"폴트914"],
+  ["02-05","313",30,"폴트914"],["02-05","314",35,"폴트100"],
+  ["02-06","326",20,"폴트914"],["02-06","313",32,"폴트914"],
+  ["02-07","317",35,"폴트914"],["02-07","319",20,"폴트100"],["02-07","313",15,"폴트100"],["02-07","342",12,"폴트100"],["02-07","304",45,"락언락"],["02-07","328",15,"PMS"],
+  ["02-08","313",40,"폴트914"],["02-08","321",20,"오일보충"],["02-08","311",55,"오일보충"],["02-08","310",35,"폴트914"],["02-08","313",30,"폴트914"],
+  ["02-09","306",20,"폴트914"],["02-09","320",20,"폴트104"],["02-09","309",55,"오일누유"],["02-09","313",20,"오일누유"],["02-09","349",110,"PMS4000H"],
+  ["02-10","313",30,"폴트914"],
+  ["02-11","313",30,"폴트914"],
+  ["02-12","315",25,"주행속도"],["02-12","318",15,"폴트914"],["02-12","304",25,"오일누유"],["02-12","302",23,"폴트914"],["02-12","319",30,"폴트914"],
+  ["02-13","320",23,"수축확장"],
+  ["02-14","313",25,"작동유보충"],["02-14","311",45,"폴트914"],["02-14","306",20,"폴트914"],["02-14","313",30,"오일보충"],["02-14","331",7,"폴트3104"],
+  ["02-15","314",25,"오일누유"],["02-15","329",6,"메인호스"],["02-15","313",30,"폴트914"],["02-15","318",30,"폴트433"],["02-15","313",40,"작동유보충"],["02-15","319",25,"오일보충"],["02-15","322",25,"오일보충"],
+  ["02-16","313",30,"폴트914"],["02-16","313",30,"폴트914"],["02-16","313",35,"폴트914"],
+  ["02-18","325",20,"폴트813"],["02-18","329",10,"폴트3100"],["02-18","340",15,"폴트3050"],
+  ["02-19","302",16,"스프레더"],["02-19","318",40,"폴트914"],["02-19","311",45,"폴트914"],["02-19","304",60,"오일누유"],["02-19","326",20,"폴트914"],
+  ["02-20","317",30,"폴트914"],["02-20","306",24,"폴트914"],["02-20","313",26,"폴트914"],
+  ["02-22","313",16,"폴트914"],["02-22","328",5,"폴트236"],["02-22","318",20,"오일누유"],
+  ["02-23","311",30,"폴트914"],["02-23","314",30,"폴트914"],
+  ["02-24","326",20,"폴트914"],["02-24","319",30,"폴트914"],["02-24","306",24,"오일누유"],["02-24","313",30,"폴트914"],
+];
+
+// 전체 날짜 목록 (정렬)
+const allDates = [...new Set(raw.map(r=>r[0]))].sort();
+
+// SC별 집계
+const scMap = {}; // sc -> { total, count, daily: {date: amount} }
+for(const [date, sc, vol] of raw) {
+  if(!scMap[sc]) scMap[sc] = {total:0, count:0, daily:{}};
+  scMap[sc].total += vol;
+  scMap[sc].count += 1;
+  scMap[sc].daily[date] = (scMap[sc].daily[date]||0) + vol;
+}
+
+// 위험도 분류
+function getRisk(total) {
+  if(total >= 100) return 'high';
+  if(total >= 30) return 'medium';
+  return 'low';
+}
+
+let currentFilter = 'all';
+
+function setFilter(f) {
+  currentFilter = f;
+  ['All','High','Med','Low'].forEach(x=>{
+    const btn = document.getElementById('btn'+x);
+    if(btn) btn.classList.remove('active');
+  });
+  const map = {all:'All',high:'High',medium:'Med',low:'Low'};
+  document.getElementById('btn'+map[f]).classList.add('active');
+  render();
+}
+
+function render() {
+  const sort = document.getElementById('sortSelect').value;
+  const search = document.getElementById('searchInput').value.trim();
+
+  let entries = Object.entries(scMap);
+
+  // 검색
+  if(search) entries = entries.filter(([sc])=>sc.includes(search));
+
+  // 필터
+  if(currentFilter !== 'all') entries = entries.filter(([,v])=>getRisk(v.total)===currentFilter);
+
+  // 정렬
+  if(sort==='total_desc') entries.sort((a,b)=>b[1].total-a[1].total);
+  else if(sort==='total_asc') entries.sort((a,b)=>a[1].total-b[1].total);
+  else if(sort==='count_desc') entries.sort((a,b)=>b[1].count-a[1].count);
+  else entries.sort((a,b)=>parseInt(a[0])-parseInt(b[0]));
+
+  renderGrid(entries);
+}
+
+const chartInstances = {};
+
+function renderGrid(entries) {
+  const grid = document.getElementById('scGrid');
+  // 기존 차트 destroy
+  Object.values(chartInstances).forEach(c=>c.destroy());
+  Object.keys(chartInstances).forEach(k=>delete chartInstances[k]);
+
+  if(entries.length===0) {
+    grid.innerHTML = '<div class="no-data">해당 조건의 호기가 없습니다.</div>';
+    return;
+  }
+
+  grid.innerHTML = entries.map(([sc, v]) => {
+    const risk = getRisk(v.total);
+    const avg = Math.round(v.total/v.count);
+    return `
+      <div class="sc-card ${risk}" id="card-${sc}">
+        <div class="sc-header">
+          <span class="sc-name">SC ${sc}</span>
+          <div class="sc-meta">
+            <span class="total-val">${v.total}L</span>
+            <span>${v.count}회</span>
+            <span>평균 ${avg}L</span>
+          </div>
+        </div>
+        <canvas id="chart-${sc}" height="100"></canvas>
+      </div>
+    `;
+  }).join('');
+
+  // 각 차트 생성
+  entries.forEach(([sc, v]) => {
+    const risk = getRisk(v.total);
+    const color = risk==='high'?'#ef4444':risk==='medium'?'#f97316':'#00c9ff';
+    const bgColor = risk==='high'?'rgba(239,68,68,0.08)':risk==='medium'?'rgba(249,115,22,0.08)':'rgba(0,201,255,0.06)';
+
+    // 해당 SC가 보충한 날짜만 사용
+    const scDates = allDates.filter(d => v.daily[d]);
+    const values = scDates.map(d=>v.daily[d]);
+
+    const ctx = document.getElementById(`chart-${sc}`);
+    if(!ctx) return;
+
+    chartInstances[sc] = new Chart(ctx, {
+      type:'bar',
+      data:{
+        labels: scDates.map(d=>d.replace('-','/')),
+        datasets:[{
+          type:'bar',
+          label:'보충량(L)',
+          data:values,
+          backgroundColor: values.map(v2 => {
+            const alpha = 0.3 + 0.7*(v2/Math.max(...values));
+            return color.replace(')', `,${alpha})`).replace('rgb','rgba').replace('rgba(#','rgba(').replace('#','');
+            // 간단하게 처리
+          }),
+          borderColor: color,
+          borderWidth:1,
+          borderRadius:3,
+        },{
+          type:'line',
+          label:'추이',
+          data:values,
+          borderColor: color,
+          borderWidth:2,
+          pointBackgroundColor: color,
+          pointRadius:3,
+          pointHoverRadius:5,
+          fill:false,
+          tension:0.3,
+          yAxisID:'y',
+        }]
+      },
+      options:{
+        responsive:true,
+        interaction:{mode:'index',intersect:false},
+        plugins:{
+          legend:{display:false},
+          tooltip:{
+            callbacks:{
+              title:ctx2=>`${ctx2[0].label}`,
+              label:ctx2=>`${ctx2.raw}L`
+            }
+          }
+        },
+        scales:{
+          x:{
+            ticks:{font:{size:9}, color:'#64748b', maxRotation:45},
+            grid:{color:'#1a2235'}
+          },
+          y:{
+            ticks:{font:{size:9}, color:'#64748b'},
+            grid:{color:'#1a2235'},
+            beginAtZero:true
+          }
+        }
+      }
+    });
+  });
+}
+
+// ===================== 종합 추이 (상위 10) =====================
+function renderOverview() {
+  const top10 = Object.entries(scMap).sort((a,b)=>b[1].total-a[1].total).slice(0,10);
+  const palette = [
+    '#ef4444','#f97316','#fbbf24','#00c9ff','#a78bfa',
+    '#34d399','#f472b6','#60a5fa','#fb923c','#4ade80'
+  ];
+
+  const datasets = top10.map(([sc, v], i) => ({
+    label:`SC ${sc}`,
+    data: allDates.map(d=>v.daily[d]||null),
+    borderColor: palette[i],
+    backgroundColor: palette[i]+'22',
+    borderWidth:2,
+    pointRadius:3,
+    pointHoverRadius:5,
+    fill:false,
+    tension:0.3,
+    spanGaps:false,
+  }));
+
+  new Chart(document.getElementById('overviewChart'), {
+    type:'line',
+    data:{
+      labels: allDates.map(d=>d.replace('-','/')),
+      datasets
+    },
+    options:{
+      responsive:true,
+      interaction:{mode:'index',intersect:false},
+      plugins:{
+        legend:{
+          position:'bottom',
+          labels:{font:{size:9}, boxWidth:12, padding:8, color:'#94a3b8'}
+        }
+      },
+      scales:{
+        x:{ticks:{font:{size:9},color:'#64748b'}, grid:{color:'#1a2235'}},
+        y:{ticks:{font:{size:9},color:'#64748b'}, grid:{color:'#1a2235'}, beginAtZero:true}
+      }
+    }
+  });
+}
+
+Chart.defaults.color='#64748b';
+Chart.defaults.borderColor='#1e2d45';
+
+renderOverview();
+render();
+</script>
+</body>
+</html>
